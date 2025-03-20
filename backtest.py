@@ -154,9 +154,9 @@ def calcular_estatisticas_acerto(df):
             trades_positivos = variacoes[variacoes > 0]
             trades_negativos = variacoes[variacoes < 0]
             win_rate = (len(trades_positivos) / len(variacoes)) * 100 if len(variacoes) > 0 else 0
-            avg_win = trades_positivos.mean() if len(trades_positivos) > 0 else 0
-            avg_loss = abs(trades_negativos.mean()) if len(trades_negativos) > 0 else 0
-            razao_risk_reward = avg_win / avg_loss if avg_loss != 0 else float('inf')
+            avg_win = trades_positivos.mean() if len(trades_positivos) > 0 else 0 #Nao esta no front
+            avg_loss = abs(trades_negativos.mean()) if len(trades_negativos) > 0 else 0 #Nao esta no front
+            razao_risk_reward = avg_win / avg_loss if avg_loss != 0 else float('inf') #Nao esta no front
             
             # Profit Factor (Lucro Total / Prejuízo Total)
             lucro_total = trades_positivos.sum()
@@ -165,13 +165,14 @@ def calcular_estatisticas_acerto(df):
                         
             # --- Cálculo do Score ---
             score = (
-                (porcenFreq * 0.35 )+
+                (porcenFreq * 0.3 )+
                 (retorno_total * 0.25) +
-                (win_rate * 0.3) +
+                (win_rate * 0.35) +
                 (profit_factor * 0.25) +
                 (ev * 0.4) -
                 (abs(drawdown) * 0.15) -
-                (avg_loss * 0.1)  # Penaliza perdas acima de um limite
+                (avg_loss * 0.2)+# Penaliza perdas acima de um limite
+                (razao_risk_reward * 0.12)
             )
             
             # Adicionar ao dicionário com índice combinado
@@ -184,6 +185,7 @@ def calcular_estatisticas_acerto(df):
                 'Média de Acertos(%)': f"{win_rate:.2f}",
                 'Drawdown (%)': f"{drawdown:.2f}",
                 'Variação Media (%)': f"{statistics.mean(trades_positivos):.2f}",
+                'Razão Recompensa/Risco': f"{razao_risk_reward:.2f}",
                 'EV': f"{ev:.2f}",
                 'Score': f"{score:.2f}",
                 'Alvos':pd.DataFrame(list(acertos.items()), columns=["Alvo", "Porcentagem de Acerto"]).set_index("Alvo").transpose()
@@ -384,7 +386,7 @@ if os.path.isfile(dados_csv_file):
                                 if (metrica == 'Frequência'):
                                     with col31:
                                         st.metric(metrica,valor)
-                                elif (metrica == 'Frequência(%)') or (metrica == 'Variação Media (%)'):
+                                elif (metrica == 'Frequência(%)') or (metrica == 'Variação Media (%)') or (metrica == 'Razão Recompensa/Risco'):
                                     with col33:
                                         st.metric(metrica,valor)
                                 elif (metrica == 'Horário') or (metrica == 'Dia'):
