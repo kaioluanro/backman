@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import time
+import statistics
 
 # CSS para ajustar a largura do container principal
 st.markdown(
@@ -101,9 +102,20 @@ def calcular_estatisticas_acerto(df):
             for alvo in alvos_lista:
                 acertos[alvo] = group[alvo].mean() * 100  # Porcentagem de acerto por alvo
             
+            numStops=0
+            mediaVariarStop=[]
+            for s in group['Variar']:
+                if s<0:
+                    numStops+=1
+                mediaVariarStop.append(s)
+
+            
             # Calcular média de acerto e frequência
             media_acertos = sum(acertos.values()) / len(acertos)
+            #Frequncia da operaçao
             frequencia = total_linhas
+            #Porcentagem da frequencia no Total de trades
+            porcenFreq = (len(group['Variar'])/len(df['Variar']))*100
 
             #Calcular Horario e Dia
             frequencia_dias = group['Dia da Semana'].value_counts()
@@ -113,40 +125,67 @@ def calcular_estatisticas_acerto(df):
             top_3_dias = frequencia_dias.nlargest(3)
             top_3_horarios = frequencia_horarios.nlargest(3)
             
-            #Porcentagem da frequencia no Total de trades
-            porcenFreq = (len(group['Variar'])/len(df['Variar']))*100
             
             # Calcular saldo acumulado simulado para o grupo
             variacoes = group['Variar']  # Exemplo de %
 
-            if saldo_acumulado == saldo_inicial:
-                saldo_acumulado = saldo_inicial * ((1 + variacoes / 100))
+            # Calcular saldo acumulado simulado para o grupo
+            variacoes = group['Variar']
+            saldo_acumulado = saldo_inic
+            saldo_lista = []
+            for var in variacoes:
+                saldo_acumulado = saldo_acumulado * (1 + var / 100)
+                saldo_lista.append(saldo_acumulado)
+            
+            retorno_total = (saldo_acumulado - saldo_inicial) / saldo_inicial * 100  # % total
+            
+            # Calcular drawdown
+            if saldo_lista:
+                saldo_series = pd.Series(saldo_lista)
+                maximo_acumulado = saldo_series.cummax()
+                drawdown = ((saldo_series - maximo_acumulado) / maximo_acumulado * 100).min()
             else:
-                saldo_acumulado = saldo_acumulado * ((1 + variacoes / 100))
-
-            maximo_acumulado = saldo_acumulado.cummax()
-            drawdown = ((saldo_acumulado - maximo_acumulado) / maximo_acumulado * 100).min()
-
+                drawdown = 0
+            
             # Calcular EV (valor esperado)
-            ev = media_acertos * 0.01 * frequencia  # Exemplo simplificado
-
+            ev = (media_acertos*(variacoes.mean()*retorno_total))+((abs(media_acertos-100)*(statistics.mean(mediaVariarStop)*retorno_total)))
+            
+            # Win Rate e Razão Risco/Retorno
+            trades_positivos = variacoes[variacoes > 0]
+            trades_negativos = variacoes[variacoes < 0]
+            win_rate = (len(trades_positivos) / len(variacoes)) * 100 if len(variacoes) > 0 else 0
+            avg_win = trades_positivos.mean() if len(trades_positivos) > 0 else 0
+            avg_loss = abs(trades_negativos.mean()) if len(trades_negativos) > 0 else 0
+            razao_risk_reward = avg_win / avg_loss if avg_loss != 0 else float('inf')
+            
+            # Profit Factor (Lucro Total / Prejuízo Total)
+            lucro_total = trades_positivos.sum()
+            prejuizo_total = abs(trades_negativos.sum())
+            profit_factor = lucro_total / prejuizo_total if prejuizo_total != 0 else float('inf')
+                        
+            # --- Cálculo do Score ---
+            score = (
+                (porcenFreq * 0.35 )+
+                (retorno_total * 0.25) +
+                (win_rate * 0.3) +
+                (profit_factor * 0.25) +
+                (ev * 0.4) -
+                (abs(drawdown) * 0.15) -
+                (avg_loss * 0.1)  # Penaliza perdas acima de um limite
+            )
+            
             # Adicionar ao dicionário com índice combinado
             estatisticas[(ativo, timeframe, localizacao, estrategia, gatilho)] = {
                 'Projecao': pd.DataFrame(list(saldo_acumulado_), columns=['PnL']),
-                'Frequência': frequencia,
-                'Frequência(%)': porcenFreq,
+                'Frequência': f'{frequencia}/{len(df)}',
+                'Frequência(%)': f"{porcenFreq:.2f}",
                 'Horário':top_3_horarios,
                 'Dia': top_3_dias,
-                'Média de Acertos(%)': media_acertos,
-                'Drawdown (%)': drawdown,
-                'Variação Media (%)': mediaVariacao,
-                'EV': ev,
-                'Score': (
-                    frequencia * 0.4 +
-                    media_acertos * 0.3 +
-                    ev * 0.2 -
-                    abs(drawdown) * 0.1  # Penalizar drawdown
-                ),
+                'Média de Acertos(%)': f"{win_rate:.2f}",
+                'Drawdown (%)': f"{drawdown:.2f}",
+                'Variação Media (%)': f"{statistics.mean(trades_positivos):.2f}",
+                'EV': f"{ev:.2f}",
+                'Score': f"{score:.2f}",
                 'Alvos':pd.DataFrame(list(acertos.items()), columns=["Alvo", "Porcentagem de Acerto"]).set_index("Alvo").transpose()
             }
 
