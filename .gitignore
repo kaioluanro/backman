@@ -2,3 +2,4 @@
 **/backman
 **/__pycache__
 dados_formulario.csv
+*.gitignore

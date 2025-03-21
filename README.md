@@ -5,7 +5,7 @@
 - ao finalizar de install todas as dependencias, roda o comando "streamlit run main.py"
 
 
-# Documentação Estatistica
+# Documentação Metricas
 
 ## Frequencia
 
@@ -53,3 +53,12 @@ Ranqueia os três horarios com mais trade positivos.
 ## Dia
 
 Ranqueia os três dias da semana com mais trade positivos.
+
+
+# TODO
+
+[ ] PERFORMA GERAL DE ATIVO, LOCALIZAÇAO, ESTRATEGIA E GATILHO
+[ ] VERIFICADOR EM VARIAÇÃO, PARA EVITAR ADICIONA VARIAÇAO NEGATIVA
+[x] SCORE INF FICAR POR ULTIMO
+[ ] DASH PERFORMACE GERAL
+[ ] DIARIO DE TRADE

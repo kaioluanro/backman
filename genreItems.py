@@ -70,3 +70,4 @@ if st.button("Salvar alteração das Tabelas!"):
     edited_df2.to_csv(bt.localizacao_csv_file, index=False)
     edited_df3.to_csv(bt.estrategia_csv_file, index=False)
     edited_df4.to_csv(bt.gatilho_csv_file, index=False)
+    st.success(f"Alteração salva com sucesso!")

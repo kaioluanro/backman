@@ -3,6 +3,10 @@ import pandas as pd
 import os
 import time
 import statistics
+from collections import defaultdict
+# ============
+
+
 
 # CSS para ajustar a largura do container principal
 st.markdown(
@@ -64,12 +68,9 @@ def carregar_lista_csv(caminho_arquivo):
     else:
         return []
 
-def calcular_estatisticas_acerto(df):
+def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estratégia', 'Gatilho']):
     # Agrupar por Ativo, Estratégia, Localização e Gatilho
-    grupos = df.groupby(['Ativo', 'Localização', 'Estratégia', 'Gatilho'])
     ativos = df['Ativo'].unique()
-    
-    
     
     # Calculo de Estaticas
     estatisticas = {}
@@ -91,10 +92,11 @@ def calcular_estatisticas_acerto(df):
         mediaVariacao = sub_df.loc[:,'Variar'].mean()
         
         
-        sub_df = df[df['Ativo'] == ativo].groupby(['Timeframe','Localização', 'Estratégia', 'Gatilho'])
+        sub_df = df[df['Ativo'] == ativo].groupby(grouped)
         stop_count = 0
         saldo_inicial = 100
         saldo_acumulado = saldo_inicial
+
         for (timeframe, localizacao, estrategia, gatilho), group in sub_df:
             
             acertos = {}
@@ -115,7 +117,7 @@ def calcular_estatisticas_acerto(df):
             #Frequncia da operaçao
             frequencia = total_linhas
             #Porcentagem da frequencia no Total de trades
-            porcenFreq = (len(group['Variar'])/len(df['Variar']))*100
+            porcenFreq = (len(group['Variar'])/len(df[df['Ativo'] == ativo]))*100
 
             #Calcular Horario e Dia
             frequencia_dias = group['Dia da Semana'].value_counts()
@@ -156,7 +158,7 @@ def calcular_estatisticas_acerto(df):
             win_rate = (len(trades_positivos) / len(variacoes)) * 100 if len(variacoes) > 0 else 0
             avg_win = trades_positivos.mean() if len(trades_positivos) > 0 else 0 #Nao esta no front
             avg_loss = abs(trades_negativos.mean()) if len(trades_negativos) > 0 else 0 #Nao esta no front
-            razao_risk_reward = avg_win / avg_loss if avg_loss != 0 else float('inf') #Nao esta no front
+            razao_risk_reward = avg_win / avg_loss if avg_loss != 0 else float('inf')
             
             # Profit Factor (Lucro Total / Prejuízo Total)
             lucro_total = trades_positivos.sum()
@@ -171,29 +173,29 @@ def calcular_estatisticas_acerto(df):
                 (profit_factor * 0.25) +
                 (ev * 0.4) -
                 (abs(drawdown) * 0.15) -
-                (avg_loss * 0.2)+# Penaliza perdas acima de um limite
-                (razao_risk_reward * 0.12)
+                (avg_loss * 0.2)# Penaliza perdas acima de um limite
+                ##(razao_risk_reward * 0.12)
             )
-            
+
             # Adicionar ao dicionário com índice combinado
             estatisticas[(ativo, timeframe, localizacao, estrategia, gatilho)] = {
                 'Projecao': pd.DataFrame(list(saldo_acumulado_), columns=['PnL']),
-                'Frequência': f'{frequencia}/{len(df)}',
-                'Frequência(%)': f"{porcenFreq:.2f}",
+                'Frequência': frequencia,
+                'Frequência(%)': porcenFreq,
                 'Horário':top_3_horarios,
                 'Dia': top_3_dias,
-                'Média de Acertos(%)': f"{win_rate:.2f}",
-                'Drawdown (%)': f"{drawdown:.2f}",
-                'Variação Media (%)': f"{statistics.mean(trades_positivos):.2f}",
-                'Razão Recompensa/Risco': f"{razao_risk_reward:.2f}",
-                'EV': f"{ev:.2f}",
-                'Score': f"{score:.2f}",
+                'Média de Acertos(%)': win_rate,
+                'Drawdown (%)': drawdown,
+                'Variação Media (%)': statistics.mean(group['Variar']),
+                'Razão Recompensa/Risco': razao_risk_reward,
+                'EV': ev,
+                'Score': score,
                 'Alvos':pd.DataFrame(list(acertos.items()), columns=["Alvo", "Porcentagem de Acerto"]).set_index("Alvo").transpose()
             }
 
     
     
-    return ativos,estatisticas
+    return ativos,estatisticas,len(df[df['Ativo'] == ativo])
     
 # Função para adicionar ou remover itens
 def add_remove_item(lista, action, item):
@@ -357,51 +359,194 @@ if os.path.isfile(dados_csv_file):
     df2 = pd.read_csv(dados_csv_file)
 
     # Calcular as estatísticas de acerto
-    ativos,estatisticas = calcular_estatisticas_acerto(df2)
+    ativos,estatisticas,total_trades_ativo = calcular_estatisticas_acerto(df2)
     print(ativos)
-
+    
     # Exibir as estatísticas no Streamlit
     st.subheader("Estatísticas de Acerto por Ativo e Combinção de Estratégia, Localização e Gatilho")
-    # Iteração no dicionário 'estatisticas'
-    for ativo in ativos:
-        st.html(f"<h3>{ativo}</h3>")
+    
+    #Abas
+    tab1, tab2 = st.tabs(["Ativos", "Localizaçao"])
+    with tab1:
         
-        for chave, valores in sorted(estatisticas.items(), key=lambda x: x[1]['Score'], reverse=True):
-            print(list(chave)) # Console 
-            ativo_,timeframe, localizacao, estrategia, gatilho = chave
+        # Chamada ao Janela do Filtro
+        sortedList = ['Frequência(%)','Média de Acertos(%)', 'Drawdown (%)', 'Variação Media (%)', 'Razão Recompensa/Risco', 'EV', 'Score']
+        sortedList_s=''
+        
+        st.subheader("Filtros", divider="red")
+        col_flt_ativo, col_flt_tmFrame, col_flt_sorted,_,_,_ = st.columns(6)
+        with col_flt_ativo:
+            ativosList_s = st.selectbox("Ativo", ativos)
+        with col_flt_tmFrame:
+            timerFrameList_s = st.selectbox("Timer Frame", timeframes_lista)
+        with col_flt_sorted:
+            sortedList_s = st.selectbox("Ordem da Lista", sortedList)
+        st.divider()
             
-            if ativo == ativo_:
-                with st.expander(f"{ativo_} - {timeframe} - {localizacao} - {estrategia} - {gatilho}", expanded=False):
-                    # Informação da Estatisca
-                    
-                    col31, col32, col33 = st.columns(3) # Colunas de Metricas
-                    for metrica, valor in valores.items():
-                        if type(valor) is pd.DataFrame:
-                            #Chart PnL
-                            if valor.columns[0] == 'PnL':
-                                st.write(f"**Projeção PnL:** ") 
-                                st.area_chart(valor, color=["#5BD96C"])
-                        if type(valor) is not pd.DataFrame:
-                                #Metricas
-                                if (metrica == 'Frequência'):
-                                    with col31:
-                                        st.metric(metrica,valor)
-                                elif (metrica == 'Frequência(%)') or (metrica == 'Variação Media (%)') or (metrica == 'Razão Recompensa/Risco'):
-                                    with col33:
-                                        st.metric(metrica,valor)
-                                elif (metrica == 'Horário') or (metrica == 'Dia'):
-                                    with col31:
-                                        st.write(f"**{metrica}:** ") 
-                                        st.write(valor)
+        # Iteração no dicionário 'estatisticas'
+        for ativo in ativos:
+            
 
-                                if (metrica == 'Média de Acertos(%)') or (metrica == 'Drawdown (%)') or (metrica == 'EV') or (metrica == 'Score'):
-                                    with col32:
-                                        st.metric(metrica,valor)
-                        if type(valor) is pd.DataFrame:
-                            #Alvos estatisticas
-                            if valor.columns[0] != 'PnL':
-                                st.write(f"**{metrica} Estatistica:** ") 
-                                st.write(valor)
+            if sortedList_s == '':
+                x = sorted(estatisticas.items(), key=lambda x: float(x[1]["EV"]), reverse=True)
+            else:
+                x = sorted(estatisticas.items(), key=lambda x: float(x[1][sortedList_s]), reverse=True)
+                
+            #st.html(f"<h3>{ativo}</h3>")
+            for chave, valores in x:
+                #print(list(chave)) # Console 
+                ativo_,timeframe, localizacao, estrategia, gatilho = chave
+                
+                if (ativosList_s == ativo_) and (ativo_==ativo) and (timeframe==timerFrameList_s):
+                    with st.expander(f"{ativo_} - {timeframe} - {localizacao} - {estrategia} - {gatilho}", expanded=False):
+                        # Informação da Estatisca
+                        
+                        col31, col32, col33 = st.columns(3) # Colunas de Metricas
+                        for metrica, valor in valores.items():
+                            if type(valor) is pd.DataFrame:
+                                #Chart PnL
+                                if valor.columns[0] == 'PnL':
+                                    st.write(f"**Projeção PnL:** ") 
+                                    st.area_chart(valor, color=["#5BD96C"])
+                            if type(valor) is not pd.DataFrame:
+                                    #Metricas
+                                    if (metrica == 'Frequência'):
+                                        with col31:
+                                            st.metric(metrica,f"{valor}/{total_trades_ativo}")
+                                    elif (metrica == 'Frequência(%)') or (metrica == 'Variação Media (%)') or (metrica == 'Razão Recompensa/Risco'):
+                                        with col33:
+                                            st.metric(metrica,f"{valor:.2f}")
+                                    elif (metrica == 'Horário') or (metrica == 'Dia'):
+                                        with col31:
+                                            st.write(f"**{metrica}:** ") 
+                                            st.write(valor)
+
+                                    if (metrica == 'Média de Acertos(%)') or (metrica == 'Drawdown (%)') or (metrica == 'EV') or (metrica == 'Score'):
+                                        with col32:
+                                            st.metric(metrica,f"{valor:.2f}")
+                            if type(valor) is pd.DataFrame:
+                                #Alvos estatisticas
+                                if valor.columns[0] != 'PnL':
+                                    st.write(f"**{metrica} Estatistica:** ") 
+                                    st.write(valor)
+    with tab2:
+            st.subheader("Filtros", divider="red")
+            col_flt_ativo, col_flt_tmFrame, col_flt_sorted,_,_,_ = st.columns(6)
+            with col_flt_ativo:
+                ativosList_s = st.selectbox("Ativo.", ativos)
+            with col_flt_tmFrame:
+                timerFrameList_s = st.selectbox("Timer Frame.", timeframes_lista)
+            st.divider()
+            lastLocalizacao = []
+            listaLocalizacao = {}
+            for chave, valores in x:
+                #print(list(chave)) # Console 
+                _,_, localizacao, _, _ = chave
+                if localizacao not in lastLocalizacao:
+                                                
+                    lastLocalizacao.append(localizacao)
+            
+            
+            # Iteração no dicionário 'estatisticas'
+            for ativo in ativos:
+                
+                for chave, valores in x:
+                    
+                    ativo_,timeframe, localizacao, estrategia, gatilho = chave
+                    if (ativo_==ativosList_s) and (ativo_==ativo) and (timeframe==timerFrameList_s):
+                        
+                        # Inicializar métricas com valores padrão
+                        Frequencia = 0
+                        Frequência_p = 0
+                        VariaçãoMedia = 0
+                        RecompensaRisco = 0
+                        MédiaAcertos = 0
+                        Drawdown = 0
+                        EV = 0
+                        Score = 0
+
+                        # Processar as métricas disponíveis
+                        for metrica, valor in valores.items():
+                            if metrica == 'Total Trade':
+                                totalTrade = valor
+                            elif metrica == 'Frequência':
+                                Frequencia = valor
+                            elif metrica == 'Frequência(%)':
+                                Frequência_p = valor
+                            elif metrica == 'Variação Media (%)':
+                                VariaçãoMedia = valor
+                            elif metrica == 'Razão Recompensa/Risco':
+                                RecompensaRisco = valor
+                            elif metrica == 'Média de Acertos(%)':
+                                MédiaAcertos = valor
+                            elif metrica == 'Drawdown (%)':
+                                Drawdown = valor
+                            elif metrica == 'EV':
+                                EV = valor
+                            elif metrica == 'Score':
+                                Score = valor
+
+                        # Se a localização ainda não foi registrada, cria a entrada no dicionário
+                        if localizacao not in listaLocalizacao:
+                            listaLocalizacao[localizacao] = {
+                                'ativo':ativo,
+                                'local': localizacao,
+                                'Total Trade': total_trades_ativo,
+                                'Frequência': Frequencia,
+                                'Frequência(%)': Frequência_p,
+                                'Variação Media (%)': VariaçãoMedia,
+                                'Razão Recompensa/Risco': RecompensaRisco,
+                                'Média de Acertos(%)': MédiaAcertos,
+                                'Drawdown (%)': Drawdown,
+                                'EV': EV,
+                                'Score': Score
+                            }
+                        else:
+                            # Somar os valores existentes com os novos valores
+                            listaLocalizacao[localizacao]['Frequência'] += Frequencia
+                            listaLocalizacao[localizacao]['Frequência(%)'] += Frequência_p
+                            listaLocalizacao[localizacao]['Variação Media (%)'] += VariaçãoMedia
+                            listaLocalizacao[localizacao]['Razão Recompensa/Risco'] += RecompensaRisco
+                            listaLocalizacao[localizacao]['Média de Acertos(%)'] += MédiaAcertos
+                            listaLocalizacao[localizacao]['Drawdown (%)'] += Drawdown
+                            listaLocalizacao[localizacao]['EV'] += EV
+                            listaLocalizacao[localizacao]['Score'] += Score
+                            
+            try:
+                for l in lastLocalizacao:
+                    with st.container(border=True):
+                        st.markdown(f"#### **{listaLocalizacao[l]['ativo']}-{l} - {timeframe}**")
+                        col_freq, col_freq_q, col_var, col_raz, col_media, col_draw, col_EV, col_Score = st.columns(8)
+                        
+                        for m, v in listaLocalizacao[l].items():
+                            if m == 'Frequência':
+                                with col_freq:
+                                    st.metric(m,f"{v}/{total_trades_ativo}")
+                            elif m == 'Frequência(%)':
+                                with col_freq_q:
+                                    st.metric(m,f"{v:.2f}")
+                            elif m == 'Variação Media (%)':
+                                with col_var:
+                                    st.metric(m,f"{v:.2f}")
+                            elif m == 'Razão Recompensa/Risco':
+                                with col_raz:
+                                    st.metric(m,f"{v:.2f}")
+                            elif m == 'Média de Acertos(%)':
+                                with col_media:
+                                    st.metric(m,f"{v:.2f}")
+                            elif m == 'Drawdown (%)':
+                                with col_draw:
+                                    st.metric(m,f"{v:.2f}")
+                            elif m == 'EV':
+                                with col_EV:
+                                    st.metric(m,f"{v:.2f}")
+                            elif m == 'Score':
+                                with col_Score:
+                                    st.metric(m,f"{v:.2f}")
+            except:
+                st.warning('Nada para esse filtro.')        
+                                
+                    
 else:
     st.subheader("Não base de Dados! Adicione dados!")
     
