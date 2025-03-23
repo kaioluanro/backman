@@ -74,24 +74,11 @@ def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estr
     
     # Calculo de Estaticas
     estatisticas = {}
+    saldoPorGatilho = {}
     for ativo in ativos:
         
         #Projeçao no Chat
-        saldo_acumulado_=[]
-        saldo_inic = 100
-        saldo_acumula = saldo_inic
-        sub_df = df[df['Ativo'] == ativo]
-        for var in sub_df['Variar']:
-            
-            if saldo_acumula == saldo_inic:
-                saldo_acumula = saldo_inic * ((1 + var / 100))
-            else:
-                saldo_acumula = saldo_acumula * ((1 + var / 100))
-            saldo_acumulado_.append(saldo_acumula)
-        
-        mediaVariacao = sub_df.loc[:,'Variar'].mean()
-        
-        
+               
         sub_df = df[df['Ativo'] == ativo].groupby(grouped)
         stop_count = 0
         saldo_inicial = 100
@@ -117,29 +104,33 @@ def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estr
             #Frequncia da operaçao
             frequencia = total_linhas
             #Porcentagem da frequencia no Total de trades
-            porcenFreq = (len(group['Variar'])/len(df[df['Ativo'] == ativo]))*100
+            porcenFreq = (len(group[df['Ativo'] == ativo][df['Timeframe']== timeframe]['Variar'])/len(df[df['Ativo'] == ativo][df['Timeframe'] == timeframe]))*100
 
-            #Calcular Horario e Dia
-            frequencia_dias = group['Dia da Semana'].value_counts()
-            frequencia_horarios = group['Horário'].value_counts()
+            #Calcular Horario e Dia mais lucrativos
+            frequencia_dias = group[group['Variar'] > 0]['Dia da Semana'].value_counts()
+            frequencia_horarios = group[group['Variar'] > 0]['Horário'].value_counts()
 
             # Selecionar os 3 mais frequentes
             top_3_dias = frequencia_dias.nlargest(3)
             top_3_horarios = frequencia_horarios.nlargest(3)
             
-            
             # Calcular saldo acumulado simulado para o grupo
-            variacoes = group['Variar']  # Exemplo de %
-
-            # Calcular saldo acumulado simulado para o grupo
-            variacoes = group['Variar']
-            saldo_acumulado = saldo_inic
+            variacoes = group[df['Ativo'] == ativo][df['Timeframe']== timeframe][group['Gatilho']==gatilho]['Variar']
+            saldo_acumulado = 100 #saldo Inicial com $100
+            saldo_acumulado_neg = 0
+            saldo_acumulado_pos = 0
             saldo_lista = []
             for var in variacoes:
-                saldo_acumulado = saldo_acumulado * (1 + var / 100)
+                entrada= saldo_acumulado*(20/100) #entrada
+                saldo_acumulado += ((var * 10)/entrada) # saldo_acumulado + ((variaçao% * alavacangem)/entrada)
                 saldo_lista.append(saldo_acumulado)
+
+                if var < 0:
+                    saldo_acumulado_neg += saldo_acumulado
+                else:
+                    saldo_acumulado_pos += saldo_acumulado
             
-            retorno_total = (saldo_acumulado - saldo_inicial) / saldo_inicial * 100  # % total
+            retorno_total = (saldo_acumulado - saldo_inicial) / saldo_inicial
             
             # Calcular drawdown
             if saldo_lista:
@@ -149,8 +140,6 @@ def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estr
             else:
                 drawdown = 0
             
-            # Calcular EV (valor esperado)
-            ev = (media_acertos*(variacoes.mean()*retorno_total))+((abs(media_acertos-100)*(statistics.mean(mediaVariarStop)*retorno_total)))
             
             # Win Rate e Razão Risco/Retorno
             trades_positivos = variacoes[variacoes > 0]
@@ -160,6 +149,10 @@ def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estr
             avg_loss = abs(trades_negativos.mean()) if len(trades_negativos) > 0 else 0 #Nao esta no front
             razao_risk_reward = avg_win / avg_loss if avg_loss != 0 else float('inf')
             
+            # Calcular EV (valor esperado)
+            ev = ((trades_positivos.mean()*10)*saldo_acumulado_pos)+(((trades_negativos.mean()*10)*saldo_acumulado_neg))
+            
+            
             # Profit Factor (Lucro Total / Prejuízo Total)
             lucro_total = trades_positivos.sum()
             prejuizo_total = abs(trades_negativos.sum())
@@ -167,19 +160,19 @@ def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estr
                         
             # --- Cálculo do Score ---
             score = (
-                (porcenFreq * 0.3 )+
-                (retorno_total * 0.25) +
-                (win_rate * 0.35) +
-                (profit_factor * 0.25) +
-                (ev * 0.4) -
-                (abs(drawdown) * 0.15) -
-                (avg_loss * 0.2)# Penaliza perdas acima de um limite
+                (porcenFreq * 0.03 )+
+                (retorno_total * 0.025) +
+                (win_rate * 0.035) +
+                (profit_factor * 0.025) +
+                (ev * 0.04) -
+                (abs(drawdown) * 0.015) -
+                (avg_loss * 0.02)# Penaliza perdas acima de um limite
                 ##(razao_risk_reward * 0.12)
             )
 
             # Adicionar ao dicionário com índice combinado
             estatisticas[(ativo, timeframe, localizacao, estrategia, gatilho)] = {
-                'Projecao': pd.DataFrame(list(saldo_acumulado_), columns=['PnL']),
+                'Projecao': pd.DataFrame(list(saldo_lista), columns=['PnL']),
                 'Frequência': frequencia,
                 'Frequência(%)': porcenFreq,
                 'Horário':top_3_horarios,
@@ -195,7 +188,7 @@ def calcular_estatisticas_acerto(df, grouped=['Timeframe','Localização', 'Estr
 
     
     
-    return ativos,estatisticas,len(df[df['Ativo'] == ativo])
+    return ativos,estatisticas,df[df['Ativo'] == ativo]
     
 # Função para adicionar ou remover itens
 def add_remove_item(lista, action, item):
@@ -340,7 +333,6 @@ if st.button("Salvar"):
     dados["Horário"].append(horario_s)
     dados["Dia da Semana"].append(dia_semana_s)
     
-    print(f"{variacao_s != ''}")
     # Criando ou atualizando o DataFrame
     if variacao_s != '':
         salvar_dados_formulario(ativo_s, localizacao_s, estrategia_s, gatilho_s,variacao_s, alvos_lista, stop_s, dados)
@@ -360,7 +352,7 @@ if os.path.isfile(dados_csv_file):
 
     # Calcular as estatísticas de acerto
     ativos,estatisticas,total_trades_ativo = calcular_estatisticas_acerto(df2)
-    print(ativos)
+    #print(ativos)
     
     # Exibir as estatísticas no Streamlit
     st.subheader("Estatísticas de Acerto por Ativo e Combinção de Estratégia, Localização e Gatilho")
@@ -382,7 +374,6 @@ if os.path.isfile(dados_csv_file):
         with col_flt_sorted:
             sortedList_s = st.selectbox("Ordem da Lista", sortedList)
         st.divider()
-            
         # Iteração no dicionário 'estatisticas'
         for ativo in ativos:
             
@@ -412,7 +403,7 @@ if os.path.isfile(dados_csv_file):
                                     #Metricas
                                     if (metrica == 'Frequência'):
                                         with col31:
-                                            st.metric(metrica,f"{valor}/{total_trades_ativo}")
+                                            st.metric(metrica,f"{valor}/{len(total_trades_ativo[df2['Timeframe']==timerFrameList_s])}")
                                     elif (metrica == 'Frequência(%)') or (metrica == 'Variação Media (%)') or (metrica == 'Razão Recompensa/Risco'):
                                         with col33:
                                             st.metric(metrica,f"{valor:.2f}")
@@ -437,6 +428,7 @@ if os.path.isfile(dados_csv_file):
             with col_flt_tmFrame:
                 timerFrameList_s = st.selectbox("Timer Frame.", timeframes_lista)
             st.divider()
+            
             lastLocalizacao = []
             listaLocalizacao = {}
             for chave, valores in x:
@@ -515,13 +507,13 @@ if os.path.isfile(dados_csv_file):
             try:
                 for l in lastLocalizacao:
                     with st.container(border=True):
-                        st.markdown(f"#### **{listaLocalizacao[l]['ativo']}-{l} - {timeframe}**")
+                        st.markdown(f"#### **{listaLocalizacao[l]['ativo']}-{l} - {timerFrameList_s}**")
                         col_freq, col_freq_q, col_var, col_raz, col_media, col_draw, col_EV, col_Score = st.columns(8)
                         
                         for m, v in listaLocalizacao[l].items():
                             if m == 'Frequência':
                                 with col_freq:
-                                    st.metric(m,f"{v}/{total_trades_ativo}")
+                                    st.metric(m,f"{v}/{len(total_trades_ativo[df2['Timeframe']==timerFrameList_s])}")
                             elif m == 'Frequência(%)':
                                 with col_freq_q:
                                     st.metric(m,f"{v:.2f}")
